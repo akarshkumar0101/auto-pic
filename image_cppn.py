@@ -32,7 +32,7 @@ class ImageCPPN(nn.Module):
     def __init__(self, n_hidden=24, n_layers=8, n_out_channels=3,
                  activation=torch.relu, activation_final=torch.sigmoid,
                  normalization='coordinate', residual=True,
-                 features=['x', 'y', 'r'], n_batches=1):
+                 features=['x', 'y', 'r'], dim_latent=0, n_batches=1):
         """
         two suggested configurations:
             - activation=torch.relu, normalization='coordinate', residual=True
@@ -50,9 +50,10 @@ class ImageCPPN(nn.Module):
         self.normalization = normalization
         self.residual = residual
         self.features = features
+        self.dim_latent = dim_latent
         self.n_batches = n_batches
         
-        n_units = self.n_batches*np.array([len(self.features)] + [n_hidden]*n_layers + [self.n_out_channels])
+        n_units = self.n_batches*np.array([len(self.features)+dim_latent] + [n_hidden]*n_layers + [self.n_out_channels])
         self.layers = nn.ModuleList([nn.Conv2d(n_in, n_out, kernel_size=1, groups=self.n_batches) 
                                      for n_in, n_out in zip(n_units[:-1], n_units[1:])])
         
@@ -92,8 +93,10 @@ class ImageCPPN(nn.Module):
         x = self.activation_final(x)
         return x
 
-    def generate_image(self, img_size=(224, 224)):
-        x = generate_input(img_size, self.n_batches, self.features, device=self.layers[0].weight.device)
+    def generate_image(self, img_size=(224, 224), latent=None):
+        h, w = img_size
+        x = generate_input(img_size, self.n_batches, self.features, latent, device=self.layers[0].weight.device)
+        assert (latent is None and self.dim_latent==0) or (latent.ndim==1 and len(latent)==self.dim_latent)
         # x is (1, n_batches*n_features, h, w) 
         x = self(x) # (1, n_batches*n_out_channels, h, w)
         x = x.reshape(self.n_batches, self.n_out_channels, *img_size) # (n_batches, n_out_channels, h, w)
@@ -146,29 +149,52 @@ class BatchImageCPPN(nn.Module):
         x = self.cppns[0].generate_input(img_size)
         return self(x)
 
-cache = None
-def generate_input(img_size=(224, 224), n_batches=1, features=['x', 'y', 'r'], device='cpu'):
-    inputs = (img_size, n_batches, features, device)
-    if cache is not None and inputs in cache:
-        x =  cache[inputs]
-    else:
-        h, w = img_size
-        y, x = torch.linspace(-1, 1, h, device=device), torch.linspace(-1, 1, w, device=device)
-        y, x = torch.meshgrid(y, x, indexing='ij')
+# cache = None
+# def generate_input(img_size=(224, 224), n_batches=1, features=['x', 'y', 'r'], device='cpu'):
+#     inputs = (img_size, n_batches, features, device)
+#     if cache is not None and inputs in cache:
+#         x =  cache[inputs]
+#     else:
+#         h, w = img_size
+#         y, x = torch.linspace(-1, 1, h, device=device), torch.linspace(-1, 1, w, device=device)
+#         y, x = torch.meshgrid(y, x, indexing='ij')
 
-        r = (x.pow(2)+y.pow(2)).sqrt()
-        theta = torch.atan2(x, y)
-        absy, absx = y.abs(), x.abs()
-        feature2data = {'y': y, 'x': x, 'r': r, 'theta': theta, 'absy': absy, 'absx': absx}
-        x = torch.stack([feature2data[key] for key in features], dim=0)[None] # (1, n_features, h, w)
+#         r = (x.pow(2)+y.pow(2)).sqrt()
+#         theta = torch.atan2(x, y)
+#         absy, absx = y.abs(), x.abs()
+#         feature2data = {'y': y, 'x': x, 'r': r, 'theta': theta, 'absy': absy, 'absx': absx}
+#         x = torch.stack([feature2data[key] for key in features], dim=0)[None] # (1, n_features, h, w)
 
-        # normalize
-        x = (x-x.mean(dim=(-1, -2), keepdim=True))/x.std(dim=(-1, -2), keepdim=True)
+#         # normalize
+#         x = (x-x.mean(dim=(-1, -2), keepdim=True))/x.std(dim=(-1, -2), keepdim=True)
         
-        x = x.repeat(1, n_batches, 1, 1) # (1, n_batches*n_features, h, w)
-        x = x.to(device)
+#         x = x.repeat(1, n_batches, 1, 1) # (1, n_batches*n_features, h, w)
+#         x = x.to(device)
         
-        if cache is not None:
-            cache[inputs] = x
+#         if cache is not None:
+#             cache[inputs] = x
+
+#     return x
+
+def generate_input(img_size=(224, 224), n_batches=1, features=['x', 'y', 'r'], latent=None, device='cpu'):
+    h, w = img_size
+    y, x = torch.linspace(-1, 1, h, device=device), torch.linspace(-1, 1, w, device=device)
+    y, x = torch.meshgrid(y, x, indexing='ij')
+
+    r = (x.pow(2)+y.pow(2)).sqrt()
+    theta = torch.atan2(x, y)
+    absy, absx = y.abs(), x.abs()
+    feature2data = {'y': y, 'x': x, 'r': r, 'theta': theta, 'absy': absy, 'absx': absx}
+    x = torch.stack([feature2data[key] for key in features], dim=0)[None] # (1, n_features, h, w)
+
+    # normalize
+    x = (x-x.mean(dim=(-1, -2), keepdim=True))/x.std(dim=(-1, -2), keepdim=True)
+    
+    if latent is not None:
+        latent = latent[None, :, None, None].repeat(1, 1, h, w)
+        x = torch.cat([x, latent], dim=-3)
+    
+    x = x.repeat(1, n_batches, 1, 1) # (1, n_batches*n_features, h, w)
+    x = x.to(device)
 
     return x

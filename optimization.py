@@ -26,13 +26,14 @@ def augment_img(img, n_augments, augment='crops', keep_original=False):
         imgs.append(img)
     
     if augment=='noise':
-        for _ in range(n_augments):
+        while(len(imgs)<n_augments):
             imgs.append(img+1e-2*torch.randn_like(img))
     if augment=='crops':
-        for _ in range(n_augments):
+        while(len(imgs)<n_augments):
             imgs.append(augment_trans(img))
     
-    return torch.stack(imgs, dim=0)
+    # return torch.stack(imgs, dim=0)
+    return torch.stack(imgs, dim=1)
 
 class ImageDOFs(nn.Module):
     def __init__(self, n_batch=1, n_channels=3, img_size=(224, 224)):

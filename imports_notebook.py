@@ -12,6 +12,7 @@ from torch import nn
 from PIL import Image
 from torchvision import transforms
 
+import utils
 from utils import to_np, count_params
 from image_cppn import ImageCPPN, BatchImageCPPN
 

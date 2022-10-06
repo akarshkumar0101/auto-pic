@@ -21,3 +21,14 @@ def smooth_max(x, alpha, dim=-1):
     # unstable version:
     # return (x*(alpha*x).exp()).sum()/((alpha*x).exp()).sum()
     return ((alpha*x).softmax(dim=dim)*x).sum(dim=dim)
+
+def single_batch_map(fn, x, instance_shape, **kwargs):
+    shape = tuple(x.shape)
+    assert shape[-len(instance_shape):] == instance_shape
+    bs = shape[:-len(instance_shape)]
+    x = x.view(-1, *instance_shape) # flatten batch indices
+    # print(x.shape)
+    x = fn(x, **kwargs)
+    # print(x.shape)
+    x = x.view(*bs, *x.shape[1:]) # unflatten batch indieces
+    return x
