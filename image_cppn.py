@@ -1,5 +1,3 @@
-
-from distutils.ccompiler import gen_lib_options
 import numpy as np
 import torch
 from torch import nn
@@ -39,6 +37,10 @@ class ImageCPPN(nn.Module):
             - activation=torch.tanh, normalization='coordinate', residual=False
         
         normalization can either be 'layer', 'layeraffine' or 'coordinate'
+        
+        Works for fitting images:
+                 # activation=torch.tanh, n_batches=len(targets), normalization='coordinate', residual=False)
+        
         """
         super().__init__()
         
@@ -81,12 +83,12 @@ class ImageCPPN(nn.Module):
             lx = nn.functional.layer_norm(lx, normalized_shape=lx.shape[-2:])
         return lx
         
-        
     def forward(self, x):
         for layer_idx, layer in enumerate(self.layers[:-1]):
             lx = layer(x)
-            lx = self.normalize(lx, layer_idx)
             lx = self.activation(lx)
+            if layer_idx>5:
+                lx = self.normalize(lx, layer_idx)
             x = x+lx if self.residual and x.shape==lx.shape else lx
             
         x = self.layers[-1](x)
@@ -134,20 +136,20 @@ class ImageCPPN(nn.Module):
                   self.features, n_batches=1
                  )
 
-class BatchImageCPPN(nn.Module):
-    def __init__(self, cppns=None, n_batch=1, **kwargs):
-        super().__init__()
-        if cppns is None:
-            self.cppns = nn.ModuleList([ImageCPPN(**kwargs) for _ in range(n_batch)])
-        else:
-            self.cppns = cppns
+# class BatchImageCPPN(nn.Module):
+#     def __init__(self, cppns=None, n_batch=1, **kwargs):
+#         super().__init__()
+#         if cppns is None:
+#             self.cppns = nn.ModuleList([ImageCPPN(**kwargs) for _ in range(n_batch)])
+#         else:
+#             self.cppns = cppns
 
-    def forward(self, x):
-        return torch.cat([cppn(x) for cppn in self.cppns], dim=0)
+#     def forward(self, x):
+#         return torch.cat([cppn(x) for cppn in self.cppns], dim=0)
 
-    def generate_image(self, img_size=(224, 224)):
-        x = self.cppns[0].generate_input(img_size)
-        return self(x)
+#     def generate_image(self, img_size=(224, 224)):
+#         x = self.cppns[0].generate_input(img_size)
+        # return self(x)
 
 # cache = None
 # def generate_input(img_size=(224, 224), n_batches=1, features=['x', 'y', 'r'], device='cpu'):
@@ -198,3 +200,26 @@ def generate_input(img_size=(224, 224), n_batches=1, features=['x', 'y', 'r'], l
     x = x.to(device)
 
     return x
+
+
+class PixelDOFs(nn.Module):
+    def __init__(self, n_out_channels=3, n_batches=3, img_size=(224, 224)):
+        super().__init__()
+        self.dofs = nn.Parameter(1e-1*torch.randn(n_batches, n_out_channels, *img_size))
+
+    def forward(self):
+        return self.dofs.sigmoid()
+
+    def generate_image(self, img_size=None):
+        return self()
+
+
+
+if __name__=='__main__':
+    import wandb
+    
+    for x in range(10):
+        run = wandb.init(reinit=True)
+        for y in range (100):
+            wandb.log({"metric": x+y})
+        run.finish()

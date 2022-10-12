@@ -14,7 +14,7 @@ from torchvision import transforms
 
 import utils
 from utils import to_np, count_params
-from image_cppn import ImageCPPN, BatchImageCPPN
+from image_cppn import ImageCPPN
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.cuda.set_device(0)

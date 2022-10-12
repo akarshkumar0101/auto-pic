@@ -26,9 +26,22 @@ def single_batch_map(fn, x, instance_shape, **kwargs):
     shape = tuple(x.shape)
     assert shape[-len(instance_shape):] == instance_shape
     bs = shape[:-len(instance_shape)]
-    x = x.view(-1, *instance_shape) # flatten batch indices
+    x = x.reshape(-1, *instance_shape) # flatten batch indices
     # print(x.shape)
     x = fn(x, **kwargs)
     # print(x.shape)
-    x = x.view(*bs, *x.shape[1:]) # unflatten batch indieces
+    x = x.reshape(*bs, *x.shape[1:]) # unflatten batch indieces
     return x
+
+def get_multibatch_fn(fn, ndims_instance):
+    def fn_multibatch(x, **kwargs):
+        shape_batch, shape_instance = x.shape[:-ndims_instance], x.shape[-ndims_instance:]
+        x = x.reshape(-1, *shape_instance) # flatten batch indices
+        x = fn(x, **kwargs)
+        x = x.reshape(*shape_batch, *x.shape[1:]) # unflatten batch indices
+        return x
+    return fn_multibatch
+
+
+# def inverse_sigmoid():
+    # x = ln(y/(1-y))

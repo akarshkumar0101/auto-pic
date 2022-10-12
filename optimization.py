@@ -9,10 +9,12 @@ import clip
 
 from torch import nn
 
-from image_cppn import ImageCPPN, BatchImageCPPN
+from image_cppn import ImageCPPN
+
+import utils
 
 augment_trans = transforms.Compose([
-    transforms.RandomPerspective(distortion_scale=0.5, p=1, fill=1),
+    transforms.RandomPerspective(distortion_scale=0.5, p=1., fill=0.),
     transforms.RandomResizedCrop(224, scale=(0.7,0.9)),
 ])
 
@@ -20,8 +22,11 @@ mean = [0.48145466, 0.4578275, 0.40821073]
 std = [0.26862954, 0.26130258, 0.27577711]
 
 def augment_img(img, n_augments, augment='crops', keep_original=False):
+    """
+    img is of shape (b, 3, h, w)
+    returns img of shape (b, n_augs, 3, h, w)
+    """
     imgs = []
-
     if keep_original:
         imgs.append(img)
     
@@ -35,16 +40,6 @@ def augment_img(img, n_augments, augment='crops', keep_original=False):
     # return torch.stack(imgs, dim=0)
     return torch.stack(imgs, dim=1)
 
-class ImageDOFs(nn.Module):
-    def __init__(self, n_batch=1, n_channels=3, img_size=(224, 224)):
-        super().__init__()
-        self.dofs = nn.Parameter(1e-1*torch.randn(n_batch, n_channels, *img_size))
-
-    def forward(self):
-        return self.dofs.sigmoid()
-
-    def generate_image(self, img_size=None):
-        return self()
 
 def optimize_imgs(clip_model, texts, imgs='pixel', n_iterations=100, img_size=(224, 224), lr=3e-2, device=None, callback=None):
     """
@@ -66,7 +61,7 @@ def optimize_imgs(clip_model, texts, imgs='pixel', n_iterations=100, img_size=(2
     
     """
 
-    clip_model = clip_model.to(device)
+    clip_model = clip_model.to(device).eval()
 
     with torch.no_grad():
         texts_tokens = clip.tokenize(texts).to(device)
@@ -86,20 +81,21 @@ def optimize_imgs(clip_model, texts, imgs='pixel', n_iterations=100, img_size=(2
     for i_iteration in tqdm(range(n_iterations)):
         imgs = dofs.generate_image()
 
-        imgs_augments = augment_img(imgs, 3, augment='crops') # (n_augs, batch, 3, h, w)
-        shape_aug = imgs_augments.shape
-        clip_input = imgs_augments.view(-1, *shape_aug[-3:]) *2.-1. # go from [0, 1] to [-1, 1]
-        imgs_features = clip_model.encode_image(clip_input)
-        imgs_features = imgs_features.view(*shape_aug[:2], -1) # (n_augs, batch, embed_dim)
-        
-        dots = torch.cosine_similarity(imgs_features, texts_features, dim=-1)
+        imgs_aug = augment_img(imgs, 10, augment='crops', keep_original=True) # (batch, n_augs, 3, h, w)
+        imgs_features = utils.single_batch_map(clip_model.encode_image, imgs_aug, imgs_aug.shape[-3:])
+        # shape_aug = imgs_augments.shape
+        # clip_input = imgs_augments.view(-1, *shape_aug[-3:]) *2.-1. # go from [0, 1] to [-1, 1]
+        # imgs_features = clip_model.encode_image(clip_input)
+        # imgs_features = imgs_features.view(*shape_aug[:2], -1) # (n_augs, batch, embed_dim)
+        dots = torch.cosine_similarity(imgs_features, texts_features[:, None], dim=-1)
         loss = -dots.mean()
         
         opt.zero_grad()
         loss.backward()
         opt.step()
+        # print(clip_model.visual.conv1.weight.grad.abs().mean().item())
 
         if callback is not None:
-            callback(i_iteration=i_iteration, texts=texts, imgs=imgs, imgs_augments=imgs_augments, 
+            callback(i_iteration=i_iteration, texts=texts, imgs=imgs, imgs_aug=imgs_aug, 
                      imgs_features=imgs_features, texts_features=texts_features, dots=dots, loss=loss)
 
