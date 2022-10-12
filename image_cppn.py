@@ -6,22 +6,6 @@ import matplotlib.pyplot as plt
 
 from collections import OrderedDict
 
-def composite_activation(x):
-    x = torch.atan(x)
-    # Coefficients computed by:
-    #   def rms(x):
-    #     return np.sqrt((x*x).mean())
-    #   a = np.arctan(np.random.normal(0.0, 1.0, 10**6))
-    #   print(rms(a), rms(a*a))
-    # print(x.shape)
-    x = torch.concat([x/0.67, (x*x)/0.6], dim=1)
-    # print(x.shape)
-    # print()
-    return x
-
-# class CompositeActivation(nn.Module):
-    # def forward():
-
 class ImageCPPN(nn.Module):
     """
     n_batches are implemented using the `groups` feature of torch's Conv2D.
@@ -40,6 +24,21 @@ class ImageCPPN(nn.Module):
         
         Works for fitting images:
                  # activation=torch.tanh, n_batches=len(targets), normalization='coordinate', residual=False)
+                 
+                 
+                 
+        Some code to get started:
+        
+        cppn_params = dict(n_hidden=100, n_layers=20, activation=torch.tanh, normalization='coordinate', residual=False)
+        dofs = ImageCPPN(n_batches=8, **cppn_params).to(device)
+        imgs = dofs.generate_image((64, 64)) # returns tensor of shape 8, 3, 64, 64 (batch, 3, h, w)
+        
+        Some code w/ latent vector:
+        
+        latents = torch.randn(2, 10)
+        cppn_params = dict(n_hidden=100, n_layers=20, activation=torch.tanh, normalization='coordinate', residual=False)
+        dofs = ImageCPPN(n_batches=8, **cppn_params, dim_latent=10)
+        imgs = torch.stack([dofs.generate_image((64, 64), latent) for latent in latents], dim=1) # 8, 2, 3, 64, 64 (batch, n_latents, 3, h, w)
         
         """
         super().__init__()
@@ -111,11 +110,24 @@ class ImageCPPN(nn.Module):
     #     return x
     
     def get_instance_state_dict(self, instance=None):
+        """
+        If instance is None:
+            returns a list of state dicts corresponding to each CPPN in the batch.
+        if instance==0:
+            returns a state dict for CPPN at index 0.
+        """
         data = OrderedDict([(key, value.chunk(self.n_batches, dim=0)) for key, value in self.state_dict().items()])
         state_dicts = [OrderedDict([(key, value[i]) for key, value in data.items()]) for i in range(self.n_batches)]
         return state_dicts if instance is None else state_dicts[instance]
     
     def load_instance_state_dict(self, state_dicts, instances=None):
+        """
+        state_dicts should be a dictionary or list of dictionaries corresponding to different CPPNs
+        If instances is None:
+            loads each of the state dicts into each of the CPPNs
+        if instance==0:
+            loads the input state dict into CPPN #0.
+        """
         data = OrderedDict([(key, value.chunk(self.n_batches, dim=0)) for key, value in self.state_dict().items()])
         if not isinstance(state_dicts, list):
             state_dicts = [state_dicts]
@@ -128,6 +140,9 @@ class ImageCPPN(nn.Module):
                 data[key][i].data[...] = state_dict[key]
     
     def get_instance_cppn(self, instance=None):
+        """
+        Get a fully functional batch_size=1 ImageCPPN from this batched ImageCPPN at index=instance.
+        """
         state_dicts = self.get_instance_state_dict(instance)
         
         ImageCPPN(self.n_hidden, self.n_layers, self.n_out_channels,

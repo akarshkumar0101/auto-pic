@@ -23,6 +23,11 @@ def smooth_max(x, alpha, dim=-1):
     return ((alpha*x).softmax(dim=dim)*x).sum(dim=dim)
 
 def single_batch_map(fn, x, instance_shape, **kwargs):
+    """
+    Runs a single-dim batch fn with a multi-dim batch input.
+    For example a function may only take (B, H, W), but what if you wanted to run with input (B1, B2, B3, H, W).
+    It takes care of flattening the batch indices and unflatting them after.
+    """
     shape = tuple(x.shape)
     assert shape[-len(instance_shape):] == instance_shape
     bs = shape[:-len(instance_shape)]
@@ -34,6 +39,13 @@ def single_batch_map(fn, x, instance_shape, **kwargs):
     return x
 
 def get_multibatch_fn(fn, ndims_instance):
+    """
+    Returns a multi-dim batch version of the single-dim batch fn.
+    For example a function may only take (B, H, W), but what if you wanted to run with input (B1, B2, B3, H, W).
+    It gives a function which automatically handles flattening the batch indices and unflatting them after.
+    
+    ndims_instance is the number of dimension in one instance (no batching).
+    """
     def fn_multibatch(x, **kwargs):
         shape_batch, shape_instance = x.shape[:-ndims_instance], x.shape[-ndims_instance:]
         x = x.reshape(-1, *shape_instance) # flatten batch indices

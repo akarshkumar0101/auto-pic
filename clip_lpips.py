@@ -114,7 +114,7 @@ def run_optimization(rep, lr, weight_decay, n_steps, n_augs, img_size, n_latents
         
         # print(net_clip.visual.conv1.weight.grad.abs().mean().item())
         data_wandb = dict(loss=loss.item(), loss_clip=loss_clip.item(), loss_lpips=loss_lpips.item(), grad=imgs.grad.abs().mean().item())
-        if use_wandb and i_step%(n_steps//20)==0:
+        if use_wandb and i_step%(n_steps//200)==0:
             # imgs_resize.shape is # b, l, 3, h, w
             # fig, axs = plt.subplots(n_latents, bs, figsize=(3*bs, 3*n_latents))
             fig, axs = plt.subplots(bs, n_latents, figsize=(3*n_latents, 3*bs))
